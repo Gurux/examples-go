@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Launch file",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}",
+            "args": [
+                "-h", "localhost",
+                "-p", "4063",
+                "-i", "WRAPPER", 
+                "-t", "Verbose",
+                "-c", "1", 
+                "-a", "Low",
+                "-P", "Gurux"
+            ],
+        },      
+    ]
+}
