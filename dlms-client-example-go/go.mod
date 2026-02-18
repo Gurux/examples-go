@@ -15,7 +15,4 @@ require golang.org/x/sys v0.41.0 // indirect
 
 replace github.com/Gurux/gxdlms-go => ../../gxdlms-go
 
-//Mikko
-replace github.com/Gurux/gxserial-go => ../../gxserial-go
-
 go 1.25.5
