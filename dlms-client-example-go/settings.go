@@ -11,6 +11,7 @@ import (
 	"github.com/Gurux/gxdlms-go/settings"
 	"github.com/Gurux/gxdlms-go/types"
 	"github.com/Gurux/gxnet-go"
+	"github.com/Gurux/gxserial-go"
 )
 
 type gxSettings struct {
@@ -91,6 +92,8 @@ func getParameters(args []string) (*gxSettings, error) {
 		trace:    gxcommon.TraceLevelInfo,
 		WaitTime: 5000,
 	}
+	//Has the user provided custom serial port settings, or are the default values used to Mode E.
+	modeEDefaultValues := true
 	// Initialize DLMS client with default settings.
 	opts.client, _ = dlms.NewGXDLMSSecureClient(true, 16, 1, enums.AuthenticationNone, nil, enums.InterfaceTypeHDLC)
 	i := 0
@@ -139,14 +142,48 @@ func getParameters(args []string) (*gxSettings, error) {
 				m.Port = n
 			}
 		case "S":
-			return nil, fmt.Errorf("serial port is not supported in this example")
-			/*
-				v, err := needValue()
+			v, err := needValue()
+			if err != nil {
+				return nil, err
+			}
+			tmp := strings.Split(v, ":")
+			serial := gxserial.NewGXSerial(tmp[0], gxcommon.BaudRate9600, 8, gxcommon.ParityNone, gxcommon.StopBitsOne)
+			opts.media = serial
+			if len(tmp) > 1 {
+				modeEDefaultValues = false
+				br, err := gxcommon.BaudRateParse(tmp[1])
 				if err != nil {
 					return nil, err
 				}
-				opt.SerialPort = v
-			*/
+				serial.SetBaudRate(br)
+				db, err := strconv.Atoi(tmp[2][0:1])
+				if err != nil {
+					return nil, err
+				}
+				serial.SetDataBits(db)
+				p, err := gxcommon.ParityParse(tmp[2][1 : len(tmp[2])-3])
+				serial.SetParity(p)
+				if err != nil {
+					return nil, err
+				}
+				sb, err := gxcommon.StopBitsParse(tmp[2][len(tmp[2])-3:])
+				if err != nil {
+					return nil, err
+				}
+				serial.SetStopBits(sb)
+			} else {
+				if opts.client.InterfaceType() == enums.InterfaceTypeHdlcWithModeE {
+					serial.SetBaudRate(gxcommon.BaudRate300)
+					serial.SetDataBits(7)
+					serial.SetParity(gxcommon.ParityEven)
+					serial.SetStopBits(gxcommon.StopBitsOne)
+				} else {
+					serial.SetBaudRate(gxcommon.BaudRate9600)
+					serial.SetDataBits(8)
+					serial.SetParity(gxcommon.ParityNone)
+					serial.SetStopBits(gxcommon.StopBitsOne)
+				}
+			}
 		case "a":
 			v, err := needValue()
 			if err != nil {
@@ -455,6 +492,12 @@ func getParameters(args []string) (*gxSettings, error) {
 			if err != nil {
 				return nil, err
 			}
+			if serial, ok := opts.media.(*gxserial.GXSerial); ok && modeEDefaultValues && ret == enums.InterfaceTypeHdlcWithModeE {
+				serial.SetBaudRate(300)
+				serial.SetDataBits(7)
+				serial.SetParity(gxcommon.ParityEven)
+				serial.SetStopBits(gxcommon.StopBitsOne)
+			}
 		case "m":
 			v, err := needValue()
 			if err != nil {
@@ -501,6 +544,10 @@ func getParameters(args []string) (*gxSettings, error) {
 				return nil, fmt.Errorf("invalid -w %q", v)
 			}
 			err = opts.client.HdlcSettings().SetMaxInfoRX(uint16(n))
+			if err != nil {
+				return nil, err
+			}
+			err = opts.client.HdlcSettings().SetMaxInfoTX(uint16(n))
 			if err != nil {
 				return nil, err
 			}

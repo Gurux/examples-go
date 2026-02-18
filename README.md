@@ -14,7 +14,6 @@ GXNet for Go provides TCP/UDP media used by many examples. :contentReference[oai
 Typical examples included in this repository:
 
 - **DLMS Client example** (connects to a meter or simulator, reads objects)
-- **DLMS Server / Simulator example** (acts like a meter, accepts client connections)
 - Additional small demos (translator, HDLC/Wrapper framing, etc.) depending on the repo version
 
 > Exact folder names may vary (for example: `client/`, `server/`, `examples/client`, `examples/server`).

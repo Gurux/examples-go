@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -13,16 +14,6 @@ import (
 	"github.com/Gurux/gxdlms-go/objects"
 	"github.com/Gurux/gxdlms-go/types"
 )
-
-// DLMSMedia is the transport abstraction used by GXDLMSReader.
-type DLMSMedia interface {
-	Send(data any, receiver string) error
-	Receive(args *gxcommon.ReceiveParameters) (bool, error)
-	Open() error
-	IsOpen() bool
-	Close() error
-	GetSynchronous() func()
-}
 
 // TraceLogger allows injecting application logger implementation.
 type TraceLogger interface {
@@ -36,7 +27,7 @@ type GXDLMSReader struct {
 	RetryCount        int
 	InvocationCounter string
 
-	media  DLMSMedia
+	media  gxcommon.IGXMedia
 	trace  gxcommon.TraceLevel
 	client *dlms.GXDLMSSecureClient
 
@@ -49,7 +40,7 @@ type GXDLMSReader struct {
 // NewGXDLMSReader creates a new DLMS reader.
 func NewGXDLMSReader(
 	client *dlms.GXDLMSSecureClient,
-	media DLMSMedia,
+	media gxcommon.IGXMedia,
 	trace gxcommon.TraceLevel,
 	invocationCounter string,
 	waitTime int,
@@ -378,9 +369,16 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 	unlock := r.media.GetSynchronous()
 	defer unlock()
 
+	var err error
 	rd := types.NewGXByteBuffer()
 	attempt := 0
-	for {
+	succeeded := false
+	p := gxcommon.NewReceiveParameters[[]byte]()
+	p.EOP = eop
+	p.Count = r.client.GetFrameSize(rd)
+	p.AllData = true
+	p.WaitTime = r.WaitTime
+	for !succeeded && attempt != 3 {
 		if !reply.IsStreaming() {
 			if len(data) == 0 {
 				return errors.New("packet is empty")
@@ -389,21 +387,36 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			if err := r.media.Send(data, ""); err != nil {
 				return err
 			}
-		}
-
-		raw, err := r.receiveBytes(eop, r.client.GetFrameSize(rd))
-		if err != nil {
-			if attempt >= r.RetryCount-1 {
+			succeeded, err = r.media.Receive(p)
+			if err != nil {
 				return err
 			}
-			attempt++
-			continue
+			if !succeeded {
+				attempt++
+				if attempt >= r.RetryCount {
+					return errors.New("Failed to receive reply from the device in given time.")
+				}
+				//If EOP is not set read one byte at time.
+				if p.EOP == nil {
+					p.Count = 1
+				}
+				//Try to read again...
+				log.Printf("Data send failed. Try to resend %d/3\n", attempt)
+			}
 		}
-		rd = types.NewGXByteBufferWithData(raw)
+	}
 
-		complete, err := r.client.GetData(rd, reply, notify)
+	rd.Set(p.Reply.([]byte))
+	attempt = 0
+	//Loop until whole COSEM packet is received.
+	complete := false
+	for {
+		complete, err = r.client.GetData(rd, reply, notify)
 		if err != nil {
 			return err
+		}
+		if complete {
+			break
 		}
 		if notify.IsComplete() && !notify.IsMoreData() {
 			if r.OnNotification != nil {
@@ -411,11 +424,30 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			}
 			notify.Clear()
 		}
-		if complete {
-			break
+		if p.EOP == nil {
+			p.Count = r.client.GetFrameSize(rd)
 		}
+		for {
+			succeeded, err = r.media.Receive(p)
+			if err != nil {
+				return err
+			}
+			if succeeded {
+				break
+			}
+			attempt++
+			if attempt >= r.RetryCount {
+				return errors.New("Failed to receive reply from the device in given time.")
+			}
+			p.Reply = nil
+			if err := r.media.Send(data, ""); err != nil {
+				return err
+			}
+			//Try to read again...
+			log.Printf("Data send failed. Try to resend %d/3\n", attempt)
+		}
+		rd.Set(p.Reply.([]byte))
 	}
-
 	r.writeTrace("RX:\t" + rd.String())
 	if reply.Error != 0 {
 		if reply.Error == int(enums.ErrorCodeRejected) {
@@ -425,43 +457,6 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 		return fmt.Errorf("dlms error %s", enums.ErrorCode(reply.Error).String())
 	}
 	return nil
-}
-
-func (r *GXDLMSReader) receiveBytes(eop any, count int) ([]byte, error) {
-	if count <= 0 {
-		count = 1
-	}
-	args := gxcommon.NewReceiveParameters[[]byte]()
-	args.EOP = eop
-	args.Count = count
-	args.AllData = true
-	args.WaitTime = r.WaitTime
-	ok, err := r.media.Receive(args)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, errors.New("timeout waiting response")
-	}
-	out, err := bytesFromReply(args.Reply)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, errors.New("empty response")
-	}
-	return out, nil
-}
-
-func bytesFromReply(v any) ([]byte, error) {
-	switch b := v.(type) {
-	case []byte:
-		return b, nil
-	case *types.GXByteBuffer:
-		return b.Array(), nil
-	default:
-		return nil, fmt.Errorf("unsupported receive reply type %T", v)
-	}
 }
 
 // ReadDataBlocks sends one or more data blocks to meter.
