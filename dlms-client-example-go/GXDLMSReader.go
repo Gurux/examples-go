@@ -394,7 +394,7 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			if !succeeded {
 				attempt++
 				if attempt >= r.RetryCount {
-					return errors.New("Failed to receive reply from the device in given time.")
+					return errors.New("failed to receive reply from the device in given time")
 				}
 				//If EOP is not set read one byte at time.
 				if p.EOP == nil {
@@ -406,7 +406,10 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 		}
 	}
 
-	rd.Set(p.Reply.([]byte))
+	err = rd.Set(p.Reply.([]byte))
+	if err != nil {
+		return err
+	}
 	attempt = 0
 	//Loop until whole COSEM packet is received.
 	complete := false
@@ -437,7 +440,7 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			}
 			attempt++
 			if attempt >= r.RetryCount {
-				return errors.New("Failed to receive reply from the device in given time.")
+				return errors.New("failed to receive reply from the device in given time")
 			}
 			p.Reply = nil
 			if err := r.media.Send(data, ""); err != nil {
@@ -446,7 +449,10 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			//Try to read again...
 			log.Printf("Data send failed. Try to resend %d/3\n", attempt)
 		}
-		rd.Set(p.Reply.([]byte))
+		err = rd.Set(p.Reply.([]byte))
+		if err != nil {
+			return err
+		}
 	}
 	r.writeTrace("RX:\t" + rd.String())
 	if reply.Error != 0 {
@@ -684,6 +690,14 @@ func (r *GXDLMSReader) writeTrace(line string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			if r.logger != nil {
+				r.logger.Printf("failed to close trace file: %v", closeErr)
+			} else {
+				fmt.Printf("failed to close trace file: %v\n", closeErr)
+			}
+		}
+	}()
 	_, _ = fmt.Fprintln(f, line)
 }

@@ -155,14 +155,23 @@ func getParameters(args []string) (*gxSettings, error) {
 				if err != nil {
 					return nil, err
 				}
-				serial.SetBaudRate(br)
+				err = serial.SetBaudRate(br)
+				if err != nil {
+					return nil, err
+				}
 				db, err := strconv.Atoi(tmp[2][0:1])
 				if err != nil {
 					return nil, err
 				}
-				serial.SetDataBits(db)
+				err = serial.SetDataBits(db)
+				if err != nil {
+					return nil, err
+				}
 				p, err := gxcommon.ParityParse(tmp[2][1 : len(tmp[2])-3])
-				serial.SetParity(p)
+				if err != nil {
+					return nil, err
+				}
+				err = serial.SetParity(p)
 				if err != nil {
 					return nil, err
 				}
@@ -170,18 +179,45 @@ func getParameters(args []string) (*gxSettings, error) {
 				if err != nil {
 					return nil, err
 				}
-				serial.SetStopBits(sb)
+				err = serial.SetStopBits(sb)
+				if err != nil {
+					return nil, err
+				}
 			} else {
 				if opts.client.InterfaceType() == enums.InterfaceTypeHdlcWithModeE {
-					serial.SetBaudRate(gxcommon.BaudRate300)
-					serial.SetDataBits(7)
-					serial.SetParity(gxcommon.ParityEven)
-					serial.SetStopBits(gxcommon.StopBitsOne)
+					err = serial.SetBaudRate(gxcommon.BaudRate300)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetDataBits(7)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetParity(gxcommon.ParityEven)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetStopBits(gxcommon.StopBitsOne)
+					if err != nil {
+						return nil, err
+					}
 				} else {
-					serial.SetBaudRate(gxcommon.BaudRate9600)
-					serial.SetDataBits(8)
-					serial.SetParity(gxcommon.ParityNone)
-					serial.SetStopBits(gxcommon.StopBitsOne)
+					err = serial.SetBaudRate(gxcommon.BaudRate9600)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetDataBits(8)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetParity(gxcommon.ParityNone)
+					if err != nil {
+						return nil, err
+					}
+					err = serial.SetStopBits(gxcommon.StopBitsOne)
+					if err != nil {
+						return nil, err
+					}
 				}
 			}
 		case "a":
@@ -493,10 +529,22 @@ func getParameters(args []string) (*gxSettings, error) {
 				return nil, err
 			}
 			if serial, ok := opts.media.(*gxserial.GXSerial); ok && modeEDefaultValues && ret == enums.InterfaceTypeHdlcWithModeE {
-				serial.SetBaudRate(300)
-				serial.SetDataBits(7)
-				serial.SetParity(gxcommon.ParityEven)
-				serial.SetStopBits(gxcommon.StopBitsOne)
+				err = serial.SetBaudRate(300)
+				if err != nil {
+					return nil, err
+				}
+				err = serial.SetDataBits(7)
+				if err != nil {
+					return nil, err
+				}
+				err = serial.SetParity(gxcommon.ParityEven)
+				if err != nil {
+					return nil, err
+				}
+				err = serial.SetStopBits(gxcommon.StopBitsOne)
+				if err != nil {
+					return nil, err
+				}
 			}
 		case "m":
 			v, err := needValue()
