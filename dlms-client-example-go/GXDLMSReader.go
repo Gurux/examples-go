@@ -15,25 +15,15 @@ import (
 	"github.com/Gurux/gxdlms-go/types"
 )
 
-// TraceLogger allows injecting application logger implementation.
-type TraceLogger interface {
-	Println(v ...any)
-	Printf(format string, v ...any)
-}
-
-// GXDLMSReader is an idiomatic Go port of the original C# reader class.
 type GXDLMSReader struct {
 	WaitTime          int
 	RetryCount        int
 	InvocationCounter string
 
-	media  gxcommon.IGXMedia
-	trace  gxcommon.TraceLevel
-	client *dlms.GXDLMSSecureClient
-
-	traceFile string
-	logger    TraceLogger
-
+	media          gxcommon.IGXMedia
+	trace          gxcommon.TraceLevel
+	client         *dlms.GXDLMSSecureClient
+	traceFile      string
 	OnNotification func(any)
 }
 
@@ -57,11 +47,6 @@ func NewGXDLMSReader(
 		client:            client,
 		traceFile:         "trace.txt",
 	}
-}
-
-// SetLogger sets optional trace logger.
-func (r *GXDLMSReader) SetLogger(l TraceLogger) {
-	r.logger = l
 }
 
 // InitializeConnection opens the transport and performs DLMS association.
@@ -120,10 +105,12 @@ func (r *GXDLMSReader) GetAssociationView(outputFile string) (bool, error) {
 	if outputFile != "" {
 		if _, err := os.Stat(outputFile); err == nil {
 			r.client.Objects().Clear()
-			if err = r.client.Objects().LoadFromFile(outputFile); err == nil {
+			if err = r.client.Objects().LoadFromFile(outputFile); err == nil && len(*r.client.Objects()) != 0 {
 				return false, nil
 			}
-			_ = os.Remove(outputFile)
+			if err != nil {
+				_ = os.Remove(outputFile)
+			}
 		}
 	}
 
@@ -148,7 +135,10 @@ func (r *GXDLMSReader) GetAssociationView(outputFile string) (bool, error) {
 	}
 
 	if outputFile != "" {
-		_ = r.client.Objects().SaveToFile(outputFile, &objects.GXXmlWriterSettings{Values: false})
+		ret := r.client.Objects().SaveToFile(outputFile, &objects.GXXmlWriterSettings{Values: false})
+		if ret != nil {
+			return false, err
+		}
 	}
 	return true, nil
 }
@@ -677,11 +667,7 @@ func (r *GXDLMSReader) Close() error {
 
 func (r *GXDLMSReader) writeTrace(line string) {
 	if r.trace > gxcommon.TraceLevelInfo {
-		if r.logger != nil {
-			r.logger.Println(line)
-		} else {
-			fmt.Println(line)
-		}
+		fmt.Println(line)
 	}
 	if r.traceFile == "" {
 		return
@@ -692,11 +678,7 @@ func (r *GXDLMSReader) writeTrace(line string) {
 	}
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
-			if r.logger != nil {
-				r.logger.Printf("failed to close trace file: %v", closeErr)
-			} else {
-				fmt.Printf("failed to close trace file: %v\n", closeErr)
-			}
+			fmt.Printf("failed to close trace file: %v\n", closeErr)
 		}
 	}()
 	_, _ = fmt.Fprintln(f, line)
