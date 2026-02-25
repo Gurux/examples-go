@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Gurux/gxcommon-go"
 	"github.com/Gurux/gxdlms-go/enums"
 )
 
@@ -29,6 +30,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
+	settings.media.SetOnError(func(m gxcommon.IGXMedia, err error) {
+		// log/handle error
+		fmt.Fprintln(os.Stderr, "error:", err)
+	})
+
+	settings.media.SetOnTrace(func(m gxcommon.IGXMedia, e gxcommon.TraceEventArgs) {
+		fmt.Printf("Trace: %s\n", e.String())
+	})
+
 	defer func() { _ = reader.Close() }()
 
 	if len(settings.readObjects) == 0 {
