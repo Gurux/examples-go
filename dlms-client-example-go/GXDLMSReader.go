@@ -373,7 +373,7 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			if len(data) == 0 {
 				return errors.New("packet is empty")
 			}
-			r.writeTrace("TX:\t" + types.ToHex(data, true))
+			r.writeTrace("TX:\t" + time.Now().Format("15:04:05.000") + "\t" + types.ToHex(data, true))
 			if err := r.media.Send(data, ""); err != nil {
 				return err
 			}
@@ -444,7 +444,7 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			return err
 		}
 	}
-	r.writeTrace("RX:\t" + rd.String())
+	r.writeTrace("RX:\t" + time.Now().Format("15:04:05.000") + "\t" + rd.String())
 	if reply.Error != 0 {
 		if reply.Error == int(enums.ErrorCodeRejected) {
 			time.Sleep(time.Second)
