@@ -6,7 +6,7 @@ require golang.org/x/sys v0.41.0 // indirect
 
 require github.com/Gurux/gxnet-go v1.0.6
 
-require github.com/Gurux/gxserial-go v1.0.5
+require github.com/Gurux/gxserial-go v1.0.6
 
 require github.com/Gurux/gxdlms-go v1.0.3
 

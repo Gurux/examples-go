@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Gurux/gxcommon-go"
 	"github.com/Gurux/gxdlms-go/enums"
+	"github.com/Gurux/gxserial-go"
 )
 
 func main() {
@@ -28,6 +30,14 @@ func main() {
 
 	if err := settings.media.Open(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		if _, ok := settings.media.(*gxserial.GXSerial); ok {
+			//Show available serial ports.
+			ports, err := gxserial.GetPortNames()
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "Available serial ports: %s\n", strings.Join(ports, ", "))
+
+			}
+		}
 		return
 	}
 	settings.media.SetOnError(func(m gxcommon.IGXMedia, err error) {
