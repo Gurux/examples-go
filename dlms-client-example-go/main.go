@@ -30,12 +30,14 @@ func main() {
 
 	if err := settings.media.Open(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		if _, ok := settings.media.(*gxserial.GXSerial); ok {
-			//Show available serial ports.
-			ports, err := gxserial.GetPortNames()
-			if err == nil {
-				fmt.Fprintf(os.Stderr, "Available serial ports: %s\n", strings.Join(ports, ", "))
+		if settings.media != nil {
+			if _, ok := settings.media.(*gxserial.GXSerial); ok {
+				//Show available serial ports.
+				ports, err := gxserial.GetPortNames()
+				if err == nil {
+					fmt.Fprintf(os.Stderr, "Available serial ports: %s\n", strings.Join(ports, ", "))
 
+				}
 			}
 		}
 		return
