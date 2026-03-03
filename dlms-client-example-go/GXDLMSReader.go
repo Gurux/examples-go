@@ -173,30 +173,64 @@ func (r *GXDLMSReader) GetProfileGenericColumns() {
 	}
 }
 
-// ShowValue logs one read attribute value.
-func (r *GXDLMSReader) ShowValue(val any, pos int) {
+// showValue logs one read attribute value.
+func (r *GXDLMSReader) showValue(val any, pos int) string {
 	if r.trace <= gxcommon.TraceLevelWarning {
-		return
+		return ""
 	}
-	formatted := fmt.Sprint(val)
-	if b, ok := val.([]byte); ok {
-		formatted = types.ToHex(b, true)
+	var formatted string
+	if v, ok := val.([]byte); ok {
+		formatted = types.ToHex(v, true)
+	} else if v, ok := val.(types.GXDateTime); ok {
+		formatted = v.String()
+	} else if v, ok := val.(types.GXDate); ok {
+		formatted = v.String()
+	} else if v, ok := val.(types.GXTime); ok {
+		formatted = v.String()
+	} else if v, ok := val.(types.GXTime); ok {
+		formatted = v.String()
+	} else if arr, ok := val.(types.GXArray); ok {
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			parts = append(parts, r.showValue(item, 0))
+		}
+		formatted = "[" + strings.Join(parts, ", ") + "]"
+	} else if arr, ok := val.(types.GXArray); ok {
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			parts = append(parts, r.showValue(item, 0))
+		}
+		formatted = "[" + strings.Join(parts, ", ") + "]"
+	} else if arr, ok := val.(types.GXArray); ok {
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			parts = append(parts, r.showValue(item, 0))
+		}
+		formatted = "[" + strings.Join(parts, ", ") + "]"
 	} else if arr, ok := val.([]any); ok {
 		parts := make([]string, 0, len(arr))
 		for _, item := range arr {
-			if rb, ok2 := item.([]byte); ok2 {
-				parts = append(parts, types.ToHex(rb, true))
-			} else {
-				parts = append(parts, fmt.Sprint(item))
-			}
+			parts = append(parts, r.showValue(item, 0))
 		}
 		formatted = "[" + strings.Join(parts, ", ") + "]"
+	} else if arr, ok := val.([][]any); ok {
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			parts = append(parts, r.showValue(item, 0))
+		}
+		formatted = "{" + strings.Join(parts, ", ") + "}"
+	} else {
+		formatted = fmt.Sprint(val)
 	}
-	r.writeTrace(fmt.Sprintf("Index: %d Value: %s", pos, formatted))
+	if pos != 0 {
+		r.writeTrace(fmt.Sprintf("Index: %d Value: %s", pos, formatted))
+	}
+	return formatted
 }
 
-// GetProfileGenerics reads profile generic entries metadata and sample rows.
+// GetProfileGenerics reads profile generic rows.
 func (r *GXDLMSReader) GetProfileGenerics() {
+	//Find profile generics objects and read them.
 	for _, it := range r.client.Objects().GetObjects(enums.ObjectTypeProfileGeneric) {
 		pg, ok := it.(*objects.GXDLMSProfileGeneric)
 		if !ok {
@@ -208,11 +242,29 @@ func (r *GXDLMSReader) GetProfileGenerics() {
 		if r.client.CanRead(pg.Base(), 8) {
 			_, _ = r.Read(pg, 8)
 		}
+		//If there are no columns or rows.
 		if len(pg.CaptureObjects) == 0 || pg.EntriesInUse == 0 {
 			continue
 		}
 		if rows, err := r.ReadRowsByEntry(pg, 1, 1); err == nil && r.trace > gxcommon.TraceLevelWarning {
-			r.writeTrace(fmt.Sprintf("Profile %s first row: %v", pg.Base().LogicalName(), rows))
+			r.writeTrace(fmt.Sprintf("Profile %s first row:", pg.Base().LogicalName()))
+			r.showValue(rows, 2)
+		}
+		//Read last day from Profile Generic.
+		now := time.Now()
+		midnight := time.Date(
+			now.Year(),
+			now.Month(),
+			now.Day(),
+			0, 0, 0, 0,
+			now.Location(),
+		)
+		s := *types.NewGXDateTimeFromTime(midnight)
+		midnight = midnight.Add(24 * time.Hour)
+		e := *types.NewGXDateTimeFromTime(midnight)
+		if rows, err := r.ReadRowsByRange(pg, s, e); err == nil && r.trace > gxcommon.TraceLevelWarning {
+			r.writeTrace(fmt.Sprintf("Profile %s last day:", pg.Base().LogicalName()))
+			r.showValue(rows, 2)
 		}
 	}
 }
@@ -245,7 +297,7 @@ func (r *GXDLMSReader) GetReadOut() {
 				}
 				continue
 			}
-			r.ShowValue(val, pos)
+			r.showValue(val, pos)
 		}
 	}
 }
@@ -579,7 +631,7 @@ func (r *GXDLMSReader) Method(obj *objects.GXDLMSObject, methodIndex int, value 
 }
 
 // ReadRowsByEntry reads profile generic rows by entry range.
-func (r *GXDLMSReader) ReadRowsByEntry(pg *objects.GXDLMSProfileGeneric, index, count uint32) ([]any, error) {
+func (r *GXDLMSReader) ReadRowsByEntry(pg *objects.GXDLMSProfileGeneric, index, count uint32) ([][]any, error) {
 	frames, err := r.client.ReadRowsByEntry(pg, index, count)
 	if err != nil {
 		return nil, err
@@ -592,12 +644,14 @@ func (r *GXDLMSReader) ReadRowsByEntry(pg *objects.GXDLMSProfileGeneric, index, 
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := value.([]any)
+	rows, _ := value.([][]any)
 	return rows, nil
 }
 
 // ReadRowsByRange reads profile generic rows by time range.
-func (r *GXDLMSReader) ReadRowsByRange(pg *objects.GXDLMSProfileGeneric, start, end *types.GXDateTime) ([]any, error) {
+func (r *GXDLMSReader) ReadRowsByRange(pg *objects.GXDLMSProfileGeneric,
+	start types.GXDateTime,
+	end types.GXDateTime) ([][]any, error) {
 	frames, err := r.client.ReadRowsByRange(pg, start, end)
 	if err != nil {
 		return nil, err
@@ -610,7 +664,7 @@ func (r *GXDLMSReader) ReadRowsByRange(pg *objects.GXDLMSProfileGeneric, start, 
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := value.([]any)
+	rows, _ := value.([][]any)
 	return rows, nil
 }
 
