@@ -92,6 +92,9 @@ func getParameters(args []string) (*gxSettings, error) {
 		trace:    gxcommon.TraceLevelInfo,
 		WaitTime: 5000,
 	}
+	//Set language that is used date times conversions.
+	gxcommon.SetLanguage(gxcommon.CurrentLanguage())
+
 	//Has the user provided custom serial port settings, or are the default values used to Mode E.
 	modeEDefaultValues := true
 	// Initialize DLMS client with default settings.
