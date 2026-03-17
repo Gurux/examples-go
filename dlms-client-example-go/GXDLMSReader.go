@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"github.com/Gurux/gxdlms-go/enums"
 	"github.com/Gurux/gxdlms-go/objects"
 	"github.com/Gurux/gxdlms-go/types"
+	"github.com/Gurux/gxserial-go"
 )
 
 type GXDLMSReader struct {
@@ -96,8 +98,202 @@ func (r *GXDLMSReader) logSecurityInfo() {
 }
 
 func (r *GXDLMSReader) initializeOpticalHead() error {
-	// Kept as extension point for serial mode E initialization.
+	if r.client.InterfaceType() != enums.InterfaceTypeHdlcWithModeE {
+		return nil
+	}
+
+	serial, ok := r.media.(*gxserial.GXSerial)
+	if !ok {
+		return errors.New("mode E requires serial media")
+	}
+
+	if !r.media.IsOpen() {
+		if err := r.media.Open(); err != nil {
+			return err
+		}
+	}
+
+	// Some meters need a little break before IEC handshake starts.
+	time.Sleep(time.Second)
+	data := "/?!\r\n"
+	p := gxcommon.NewReceiveParameters[string]()
+	p.AllData = false
+	p.EOP = byte(0x0A)
+	p.WaitTime = r.WaitTime
+
+	unlock := r.media.GetSynchronous()
+	defer unlock()
+
+	if r.trace > gxcommon.TraceLevelInfo {
+		r.writeTrace("IEC TX: " + data)
+	}
+	if err := r.media.Send(data, ""); err != nil {
+		return err
+	}
+	succeeded, err := r.media.Receive(p)
+	if err != nil {
+		return err
+	}
+	if !succeeded {
+		_ = r.Disconnect()
+		if err = r.media.Send(data, ""); err != nil {
+			return err
+		}
+		succeeded, err = r.media.Receive(p)
+		if err != nil {
+			return err
+		}
+		if !succeeded {
+			return errors.New("failed to receive reply from the device in given time")
+		}
+	}
+
+	reply, _ := p.Reply.(string)
+	if reply == data {
+		p.Reply = nil
+		succeeded, err = r.media.Receive(p)
+		if err != nil {
+			return err
+		}
+		if !succeeded {
+			return errors.New("failed to receive reply from the device in given time")
+		}
+		reply, _ = p.Reply.(string)
+	}
+	if r.trace > gxcommon.TraceLevelInfo {
+		r.writeTrace("IEC RX: " + reply)
+	}
+
+	start := strings.IndexByte(reply, '/')
+	if start < 0 || len(reply) < start+5 {
+		return errors.New("invalid response")
+	}
+	baudID := reply[start+4]
+	baudRate := 0
+	switch baudID {
+	case '0':
+		baudRate = 300
+	case '1':
+		baudRate = 600
+	case '2':
+		baudRate = 1200
+	case '3':
+		baudRate = 2400
+	case '4':
+		baudRate = 4800
+	case '5':
+		baudRate = 9600
+	case '6':
+		baudRate = 19200
+	default:
+		return errors.New("unknown baud rate")
+	}
+
+	arr := []byte{0x06, '2', baudID, '2', 0x0D, 0x0A}
+	if err = r.media.Send(arr, ""); err != nil {
+		return err
+	}
+	// Some meters need this delay after ACK before switching serial parameters.
+	time.Sleep(200 * time.Millisecond)
+	p.WaitTime = 2000
+	_, _ = r.media.Receive(p)
+
+	if err = r.media.Close(); err != nil {
+		return err
+	}
+	if err = serial.SetBaudRate(gxcommon.BaudRate(baudRate)); err != nil {
+		return err
+	}
+	if err = serial.SetDataBits(8); err != nil {
+		return err
+	}
+	if err = serial.SetParity(gxcommon.ParityNone); err != nil {
+		return err
+	}
+	if err = serial.SetStopBits(gxcommon.StopBitsOne); err != nil {
+		return err
+	}
+	if err = r.media.Open(); err != nil {
+		return err
+	}
+
+	//Some meters need this sleep. Do not remove.
+	time.Sleep(800 * time.Millisecond)
 	return nil
+}
+
+// ImageUpdate updates meter firmware using the image transfer object.
+func (r *GXDLMSReader) ImageUpdate(target *objects.GXDLMSImageTransfer, identification []byte, image []byte) error {
+	if target == nil || len(identification) == 0 || len(image) == 0 {
+		return gxcommon.ErrInvalidArgument
+	}
+	if _, err := r.Read(target, 5); err != nil {
+		return err
+	}
+	if !target.ImageTransferEnabled {
+		return errors.New("image transfer is not enabled")
+	}
+
+	if _, err := r.Read(target, 2); err != nil {
+		return err
+	}
+
+	reply := dlms.NewGXReplyData()
+	frames, err := target.ImageTransferInitiate(r.client, identification, uint32(len(image)))
+	if err != nil {
+		return err
+	}
+	if _, err = r.ReadDataBlocks(frames, reply); err != nil {
+		return err
+	}
+
+	frames, imageBlockCount, err := target.ImageBlockTransfer(r.client, image)
+	if err != nil {
+		return err
+	}
+	if _, err = r.ReadDataBlocks(frames, reply); err != nil {
+		return err
+	}
+	r.writeTrace(fmt.Sprintf("Image blocks transferred: %d", imageBlockCount))
+
+	if _, err = r.Read(target, 3); err != nil {
+		return err
+	}
+	frames, err = target.ImageVerify(r.client)
+	if err != nil {
+		return err
+	}
+	if _, err = r.ReadDataBlocks(frames, reply); err != nil {
+		return err
+	}
+
+	if _, err = r.Read(target, 7); err != nil {
+		return err
+	}
+	found := false
+	for _, it := range target.ImageActivateInfo {
+		if bytes.Equal(it.Identification, identification) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New("image not found")
+	}
+
+	if _, err = r.Read(target, 6); err != nil {
+		return err
+	}
+	if target.ImageTransferStatus != enums.ImageTransferStatusVerificationSuccessful {
+		return fmt.Errorf("image transfer status is %s", target.ImageTransferStatus.String())
+	}
+
+	frames, err = target.ImageActivate(r.client)
+	if err != nil {
+		return err
+	}
+	_, err = r.ReadDataBlocks(frames, reply)
+	return err
 }
 
 // GetAssociationView reads association view from the meter or from cache file.
@@ -155,7 +351,7 @@ func (r *GXDLMSReader) GetScalersAndUnits() {
 		if it.Base().ObjectType() == enums.ObjectTypeDemandRegister {
 			idx = 4
 		}
-		if !r.client.CanRead(it.Base(), idx) {
+		if !r.client.CanRead(it, idx) {
 			continue
 		}
 		if _, err := r.Read(it, idx); err != nil && r.trace > gxcommon.TraceLevelWarning {
@@ -236,10 +432,10 @@ func (r *GXDLMSReader) GetProfileGenerics() {
 		if !ok {
 			continue
 		}
-		if r.client.CanRead(pg.Base(), 7) {
+		if r.client.CanRead(pg, 7) {
 			_, _ = r.Read(pg, 7)
 		}
-		if r.client.CanRead(pg.Base(), 8) {
+		if r.client.CanRead(pg, 8) {
 			_, _ = r.Read(pg, 8)
 		}
 		//If there are no columns or rows.
@@ -273,7 +469,7 @@ func (r *GXDLMSReader) GetProfileGenerics() {
 func (r *GXDLMSReader) GetCompactData() {
 	for _, it := range r.client.Objects().GetObjects(enums.ObjectTypeCompactData) {
 		for _, idx := range []int{3, 5, 2} {
-			if r.client.CanRead(it.Base(), idx) {
+			if r.client.CanRead(it, idx) {
 				_, _ = r.Read(it, idx)
 			}
 		}
@@ -287,7 +483,7 @@ func (r *GXDLMSReader) GetReadOut() {
 			continue
 		}
 		for _, pos := range it.GetAttributeIndexToRead(true) {
-			if !r.client.CanRead(it.Base(), pos) {
+			if !r.client.CanRead(it, pos) {
 				continue
 			}
 			val, err := r.Read(it, pos)
@@ -553,7 +749,7 @@ func (r *GXDLMSReader) Read(obj objects.IGXDLMSBase, attributeIndex int) (any, e
 	if obj == nil {
 		return nil, errors.New("object is nil")
 	}
-	if !r.client.CanRead(obj.Base(), attributeIndex) {
+	if !r.client.CanRead(obj, attributeIndex) {
 		return nil, fmt.Errorf("cannot read %s index %d", obj.Base().String(), attributeIndex)
 	}
 	frames, err := r.client.Read(obj, attributeIndex)
@@ -601,7 +797,7 @@ func (r *GXDLMSReader) Write(obj objects.IGXDLMSBase, attributeIndex int) error 
 	if obj == nil {
 		return errors.New("object is nil")
 	}
-	if !r.client.CanWrite(obj.Base(), attributeIndex) {
+	if !r.client.CanWrite(obj, attributeIndex) {
 		return fmt.Errorf("cannot write %s index %d", obj.Base().String(), attributeIndex)
 	}
 	frames, err := r.client.Write(obj, attributeIndex)
@@ -614,14 +810,14 @@ func (r *GXDLMSReader) Write(obj objects.IGXDLMSBase, attributeIndex int) error 
 }
 
 // Method invokes one COSEM method.
-func (r *GXDLMSReader) Method(obj *objects.GXDLMSObject, methodIndex int, value any) error {
+func (r *GXDLMSReader) Method(obj objects.IGXDLMSBase, methodIndex int, value any) error {
 	if obj == nil {
 		return errors.New("object is nil")
 	}
 	if !r.client.CanInvoke(obj, methodIndex) {
-		return fmt.Errorf("cannot invoke %s method %d", obj.String(), methodIndex)
+		return fmt.Errorf("cannot invoke %s method %d", obj.Base().String(), methodIndex)
 	}
-	frames, err := r.client.Method(obj, methodIndex, value)
+	frames, err := r.client.Method(obj, methodIndex, value, enums.DataTypeNone)
 	if err != nil {
 		return err
 	}
