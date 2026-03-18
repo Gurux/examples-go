@@ -263,8 +263,16 @@ func (r *GXDLMSReader) ImageUpdate(target *objects.GXDLMSImageTransfer, identifi
 	if err != nil {
 		return err
 	}
-	if _, err = r.ReadDataBlocks(frames, reply); err != nil {
-		return err
+	for {
+		_, err = r.ReadDataBlocks(frames, reply)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, enums.ErrorCodeTemporaryFailure) {
+			return err
+		}
+		r.writeTrace("Image Verification temporary failed, retrying...")
+		time.Sleep(5 * time.Second)
 	}
 
 	if _, err = r.Read(target, 7); err != nil {
@@ -288,11 +296,27 @@ func (r *GXDLMSReader) ImageUpdate(target *objects.GXDLMSImageTransfer, identifi
 		return fmt.Errorf("image transfer status is %s", target.ImageTransferStatus.String())
 	}
 
+	//Activate the image.
 	frames, err = target.ImageActivate(r.client)
 	if err != nil {
 		return err
 	}
-	_, err = r.ReadDataBlocks(frames, reply)
+	// Meters usually reboot immediately after image activation and may not respond to the request.
+	// In that case, we can wait for a while and try to establish the connection again.
+	r.ReadDataBlocks(frames, reply)
+	/*
+		for {
+			_, err = r.ReadDataBlocks(frames, reply)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, enums.ErrorCodeTemporaryFailure) {
+				return err
+			}
+			r.writeTrace("Image activate temporary failed, retrying...")
+			time.Sleep(5 * time.Second)
+		}
+	*/
 	return err
 }
 
@@ -512,6 +536,13 @@ func (r *GXDLMSReader) ReadAll(outputFile string) error {
 	if err != nil {
 		return err
 	}
+	objs := r.client.Objects().GetObjects(enums.ObjectTypeImageTransfer)
+	obj := objs[0]
+	identify := []byte("Firmware update image")
+	image := []byte{0x01, 0x02, 0x03, 0x04} // Example image data.
+
+	err = r.ImageUpdate(obj.(*objects.GXDLMSImageTransfer), identify, image)
+
 	if readFromDevice {
 		r.GetScalersAndUnits()
 		r.GetProfileGenericColumns()
@@ -698,7 +729,7 @@ func (r *GXDLMSReader) ReadDLMSPacket(data []byte, reply *dlms.GXReplyData) erro
 			time.Sleep(time.Second)
 			return r.ReadDLMSPacket(data, reply)
 		}
-		return fmt.Errorf("dlms error %s", enums.ErrorCode(reply.Error).String())
+		return enums.ErrorCode(reply.Error)
 	}
 	return nil
 }
@@ -725,9 +756,8 @@ func (r *GXDLMSReader) ReadDataBlock(data []byte, reply *dlms.GXReplyData) error
 	unlock := r.media.GetSynchronous()
 	defer unlock()
 
-	for (reply.IsMoreData() &&
-		(r.client.ConnectionState() != enums.ConnectionStateNone || r.client.PreEstablishedConnection())) ||
-		(reply.Error == 0 && reply.Data.Size() == 0) {
+	for reply.IsMoreData() &&
+		(r.client.ConnectionState() != enums.ConnectionStateNone || r.client.PreEstablishedConnection()) {
 		if reply.IsStreaming() {
 			data = nil
 		} else {
