@@ -259,11 +259,11 @@ func (r *GXDLMSReader) ImageUpdate(target *objects.GXDLMSImageTransfer, identifi
 	if _, err = r.Read(target, 3); err != nil {
 		return err
 	}
-	frames, err = target.ImageVerify(r.client)
-	if err != nil {
-		return err
-	}
 	for {
+		frames, err = target.ImageVerify(r.client)
+		if err != nil {
+			return err
+		}
 		_, err = r.ReadDataBlocks(frames, reply)
 		if err == nil {
 			break
@@ -306,6 +306,10 @@ func (r *GXDLMSReader) ImageUpdate(target *objects.GXDLMSImageTransfer, identifi
 	r.ReadDataBlocks(frames, reply)
 	/*
 		for {
+			frames, err = target.ImageActivate(r.client)
+			if err != nil {
+				return err
+			}
 			_, err = r.ReadDataBlocks(frames, reply)
 			if err == nil {
 				break
@@ -536,13 +540,6 @@ func (r *GXDLMSReader) ReadAll(outputFile string) error {
 	if err != nil {
 		return err
 	}
-	objs := r.client.Objects().GetObjects(enums.ObjectTypeImageTransfer)
-	obj := objs[0]
-	identify := []byte("Firmware update image")
-	image := []byte{0x01, 0x02, 0x03, 0x04} // Example image data.
-
-	err = r.ImageUpdate(obj.(*objects.GXDLMSImageTransfer), identify, image)
-
 	if readFromDevice {
 		r.GetScalersAndUnits()
 		r.GetProfileGenericColumns()

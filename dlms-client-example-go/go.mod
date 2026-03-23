@@ -8,7 +8,7 @@ require github.com/Gurux/gxnet-go v1.0.8
 
 require github.com/Gurux/gxserial-go v1.0.9
 
-require github.com/Gurux/gxdlms-go v1.0.14
+require github.com/Gurux/gxdlms-go v1.0.15
 
 require golang.org/x/text v0.35.0 // indirect
 
