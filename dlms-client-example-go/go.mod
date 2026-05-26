@@ -2,13 +2,13 @@ module github.com/Gurux/gxdlms-client-example-go
 
 require github.com/Gurux/gxcommon-go v1.0.16
 
-require golang.org/x/sys v0.44.0 // indirect
+require golang.org/x/sys v0.45.0 // indirect
 
 require github.com/Gurux/gxnet-go v1.0.8
 
 require github.com/Gurux/gxserial-go v1.0.11
 
-require github.com/Gurux/gxdlms-go v1.0.17
+require github.com/Gurux/gxdlms-go v1.0.18
 
 require golang.org/x/text v0.37.0 // indirect
 
