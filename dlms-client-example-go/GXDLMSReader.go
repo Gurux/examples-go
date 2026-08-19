@@ -95,6 +95,13 @@ func (r *GXDLMSReader) logSecurityInfo() {
 	if dk := c.DedicatedKey(); len(dk) != 0 {
 		r.writeTrace("Dedicated key: " + types.ToHex(dk, true))
 	}
+	if r.client.CompressionOptions().EnableCompression() {
+		if r.client.Ciphering().SecuritySuite() == 0 {
+			r.writeTrace("Security suite 0 doesn't use compression.")
+		} else {
+			r.writeTrace("Compression is enabled.")
+		}
+	}
 }
 
 func (r *GXDLMSReader) initializeOpticalHead() error {
@@ -185,6 +192,12 @@ func (r *GXDLMSReader) initializeOpticalHead() error {
 		baudRate = 9600
 	case '6':
 		baudRate = 19200
+	case '7':
+		baudRate = 38400
+	case '8':
+		baudRate = 57600
+	case '9':
+		baudRate = 115200
 	default:
 		return errors.New("unknown baud rate")
 	}

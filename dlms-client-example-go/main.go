@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Gurux/gxcommon-go"
+	"github.com/Gurux/gxdlms-go/compression"
 	"github.com/Gurux/gxdlms-go/enums"
 	"github.com/Gurux/gxdlms-go/settings"
 	"github.com/Gurux/gxserial-go"
@@ -58,6 +59,23 @@ func main() {
 
 	conf.media.SetOnTrace(func(m gxcommon.IGXMedia, e gxcommon.TraceEventArgs) {
 		fmt.Printf("Trace: %s\n", e.String())
+	})
+
+	//Enable Compression:
+	//settings.client.CompressionOptions.EnableCompression = true;
+	conf.client.SetOnCompression(func(e *compression.GXCompressionArgs) error {
+		if e.Operation() == enums.CompressionOperationCompress {
+			// Compress data using GXV44 compression.
+			//  This is just an example, you can use any compression method you like.
+			// encoder := NewGXV44Encoder()
+			// e.SetOutputData(encoder.Compress(e.InputData()))
+		} else {
+			// Decompress data using GXV44 compression.
+			//  This is just an example, you can use any compression method you like.
+			// decoder := NewGXV44Decoder()
+			// e.SetOutputData(decoder.Decompress(e.InputData()))
+		}
+		return nil
 	})
 
 	defer func() { _ = reader.Close() }()
